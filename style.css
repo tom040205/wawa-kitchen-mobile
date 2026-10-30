@@ -1,7 +1,7 @@
 * { box-sizing: border-box; }
-html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #173d3b; overscroll-behavior: none; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #eee2c5; overscroll-behavior: none; }
 body { font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", "Microsoft YaHei", sans-serif; touch-action: none; -webkit-user-select: none; user-select: none; }
-#game-wrap { position: fixed; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 45%, #2d6357 0%, #173d3b 74%); }
+#game-wrap { position: fixed; inset: 0; overflow: hidden; background: #eee2c5; }
 #game { display: block; width: 100%; height: 100%; touch-action: none; }
 #landscape-overlay { display: none; position: fixed; z-index: 5; inset: 0; padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom)); align-items: center; justify-content: center; flex-direction: column; text-align: center; color: #fff2d6; background: radial-gradient(ellipse at 50% 40%, #2d6357 0%, #173d3b 76%); }
 #landscape-overlay h1 { margin: 18px 0 9px; font-size: clamp(23px, 6vw, 34px); letter-spacing: .04em; }
