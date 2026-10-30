@@ -4,7 +4,7 @@
   const ctx = canvas.getContext('2d', { alpha: false });
   const srStatus = document.getElementById('sr-status');
   const orientationButton = document.getElementById('landscape-button');
-  const W = 1100, H = 500;
+  const W = 1100, H = 500, ROUND_SECONDS = 32;
   const floor = { x: 0, y: 0, w: W, h: H };
   const ink = '#173b38', paper = '#fff8e8';
   const items = {
@@ -29,16 +29,20 @@
   ];
   const photo = {
     frog: loadImage('assets/frog-front.jpg'),
+    happy: loadImage('assets/frog-happy.jpg'),
     egg: loadImage('assets/milk-egg.jpg')
   };
   let cssW = 0, cssH = 0, dpr = 1, scale = 1, logicalW = W, logicalH = H;
   let isLandscape = false, didLayout = false;
   let player = { x: W / 2, y: H * .68, vx: 0, vy: 0, face: 1 };
-  let round = 0, eggs = 0, best = 0, carried = [], seconds = 48;
+  let round = 0, eggs = 0, best = 0, carried = [], seconds = ROUND_SECONDS;
   let lastTime = 0, roundState = 'playing', pauseUntil = 0, toast = '', toastUntil = 0, effects = [];
+  let paused = false, urgencyWarned = false, flyingDish = null;
   let joy = { id: null, active: false, baseX: 118, baseY: H - 94, dx: 0, dy: 0 };
   let keys = new Set(), tapTarget = null, audio = null;
-  let resetButton = { x: 375, y: 62, w: 23, h: 22 };
+  let pauseButton = { x: W - 124, y: 12, w: 48, h: 44 };
+  let resetButton = { x: W - 52, y: 12, w: 44, h: 44 };
+  let resumeButton = { x: W / 2 - 86, y: H / 2 + 12, w: 172, h: 46 };
   const control = { defaultJoyX: 118, joyR: 62, actionR: 56 };
   try { best = Number(localStorage.getItem('wawa-kitchen-best') || 0); } catch (_) {}
 
@@ -116,21 +120,27 @@
     g.addColorStop(0, '#f3e7cb'); g.addColorStop(1, '#e8d9b6');
     ctx.fillStyle = g; ctx.fillRect(0, 0, logicalW, logicalH);
   }
-  function drawHud() {
+  function drawHud(now) {
     const x = 14, y = 11, w = Math.min(406, logicalW - 28), h = 111;
     rounded(x + 2, y + 5, w, h, 18, 'rgba(79,57,36,.20)');
     rounded(x, y, w, h, 18, paper, 'rgba(255,255,255,.58)', 1.5);
     text('蛙蛙厨房', x + 16, y + 22, 19, ink, 900);
     text(`${recipe().guest} 的订单`, x + 16, y + 43, 9, '#82907d', 650);
     text(recipe().name, x + 16, y + 65, 16, '#285d53', 850);
-    rounded(x + w - 88, y + 12, 72, 36, 11, seconds <= 10 ? '#f6d4c3' : '#eaf1d8');
-    text(`${String(Math.max(0, Math.ceil(seconds))).padStart(2, '0')}秒`, x + w - 52, y + 30, 17, seconds <= 10 ? '#bd514b' : '#446d50', 850, 'center');
+    const urgent = seconds <= 10, flash = urgent && Math.floor(now / 260) % 2 === 0;
+    rounded(x + w - 88, y + 12, 72, 36, 11, urgent ? (flash ? '#f5c5ba' : '#f7e1d7') : '#eaf1d8');
+    text(`${String(Math.max(0, Math.ceil(seconds))).padStart(2, '0')}秒`, x + w - 52, y + 30, urgent ? 18 : 17, urgent ? '#b63e35' : '#446d50', 900, 'center');
     drawPhoto(photo.egg, x + w - 91, y + 52, 30, 29);
     text(`奶蛋 ${eggs}`, x + w - 58, y + 62, 10, '#5d845b', 850);
     text(`最佳 ${best}`, x + w - 58, y + 78, 8, '#86907b', 650);
-    rounded(logicalW - 46, 14, 32, 32, 10, 'rgba(255,248,232,.94)', '#c5b185', 1);
-    text('↻', logicalW - 30, 30, 18, '#5e8269', 800, 'center');
-    resetButton = { x: logicalW - 46, y: 14, w: 32, h: 32 };
+    pauseButton = { x: logicalW - 124, y: 12, w: 48, h: 44 };
+    resetButton = { x: logicalW - 52, y: 12, w: 44, h: 44 };
+    rounded(pauseButton.x, pauseButton.y, pauseButton.w, pauseButton.h, 11, 'rgba(255,248,232,.96)', '#c5b185', 1);
+    text(paused ? '▶' : 'Ⅱ', pauseButton.x + pauseButton.w / 2, pauseButton.y + 15, 15, '#426d58', 900, 'center');
+    text(paused ? '继续' : '暂停', pauseButton.x + pauseButton.w / 2, pauseButton.y + 34, 8, '#426d58', 750, 'center');
+    rounded(resetButton.x, resetButton.y, resetButton.w, resetButton.h, 11, 'rgba(255,248,232,.96)', '#c5b185', 1);
+    text('↻', resetButton.x + resetButton.w / 2, resetButton.y + 15, 17, '#5e8269', 800, 'center');
+    text('重开', resetButton.x + resetButton.w / 2, resetButton.y + 34, 8, '#5e8269', 750, 'center');
     const req = recipe().required, chipW = Math.min(89, (w - 28) / 4 - 3), chipH = 22, gap = 4;
     req.forEach((id, i) => {
       const cx = x + 12 + i * (chipW + gap), cy = y + 84;
@@ -167,7 +177,7 @@
     const isDelivery = st.item === 'deliver';
     const active = !isDelivery && recipe().required.includes(st.item) && !carried.includes(st.item);
     const done = !isDelivery && carried.includes(st.item);
-    const ready = isDelivery && allCollected();
+    const ready = isDelivery && allCollected() && !flyingDish;
     const pulse = .5 + .5 * Math.sin(now * .004);
     if (active || ready) {
       ctx.save(); ctx.globalAlpha = .20 + pulse * .16;
@@ -220,29 +230,27 @@
   }
   function drawFrog(p, now) {
     const speed = Math.hypot(p.vx, p.vy), walking = speed > 26;
+    const laughing = roundState === 'success' && photo.happy && photo.happy.complete && photo.happy.naturalWidth;
+    const image = laughing ? photo.happy : photo.frog;
+    const avatarW = laughing ? 148 : 126, avatarH = laughing ? 160 : 126;
     const phase = now / 118;
     const bob = walking ? Math.abs(Math.sin(phase)) * 4.5 : Math.sin(now * .0022) * 1.5;
-    const lean = walking ? Math.sin(phase) * .055 : 0;
-    const breathe = walking ? 1 + Math.sin(phase) * .018 : 1 + Math.sin(now * .0022) * .012;
+    const lean = walking ? Math.sin(phase) * .055 : laughing ? Math.sin(now * .012) * .045 : 0;
+    const breathe = walking ? 1 + Math.sin(phase) * .018 : 1 + Math.sin(now * (laughing ? .008 : .0022)) * (laughing ? .025 : .012);
     const x = p.x, y = p.y + bob;
     ellipse(x, p.y + 5, walking ? 40 : 38, walking ? 8 + Math.abs(Math.sin(phase)) * 2 : 9, 'rgba(57,68,46,.24)');
+    const drawCharacter = () => {
+      if (image && image.complete && image.naturalWidth) {
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.drawImage(image, -avatarW / 2, -avatarH + 4, avatarW, avatarH);
+      } else drawFallbackFrog(0, 0, now);
+    };
     if (walking) {
       const step = Math.sin(phase) > 0 ? -1 : 1;
-      ellipse(x - 15, p.y + 8, 8, 3, 'rgba(59,78,48,.20)');
-      ellipse(x + 15, p.y + 8, 8, 3, 'rgba(59,78,48,.20)');
-      ctx.save(); ctx.translate(x, y); ctx.rotate(lean); ctx.scale(p.face * breathe, 1 / breathe);
-      if (photo.frog && photo.frog.complete && photo.frog.naturalWidth) {
-        ctx.globalCompositeOperation = 'multiply'; ctx.drawImage(photo.frog, -63, -122, 126, 126);
-      } else drawFallbackFrog(0, 0, now);
-      ctx.restore();
-      // A tiny alternating foot shadow makes the walking state readable without changing the frog image.
+      ctx.save(); ctx.translate(x, y); ctx.rotate(lean); ctx.scale(p.face * breathe, 1 / breathe); drawCharacter(); ctx.restore();
       ellipse(x + step * 15, p.y + 9, 8, 2.6, 'rgba(58,78,48,.32)');
     } else {
-      ctx.save(); ctx.translate(x, y); ctx.scale(p.face * breathe, 1 / breathe);
-      if (photo.frog && photo.frog.complete && photo.frog.naturalWidth) {
-        ctx.globalCompositeOperation = 'multiply'; ctx.drawImage(photo.frog, -63, -122, 126, 126);
-      } else drawFallbackFrog(0, 0, now);
-      ctx.restore();
+      ctx.save(); ctx.translate(x, y); ctx.rotate(lean); ctx.scale(p.face * breathe, 1 / breathe); drawCharacter(); ctx.restore();
     }
     carried.forEach((id, i) => {
       const item = items[id]; ellipse(x - 25 + i * 15, p.y + 7, 7, 6, item.tint, '#fff4df', 1);
@@ -256,12 +264,17 @@
     ellipse(x - 11, y - 31, 1.5, 2.3, '#172a23'); ellipse(x + 11, y - 31, 1.5, 2.3, '#172a23');
   }
   function nearestStation() {
+    if (flyingDish) {
+      const d = Math.hypot(player.x - flyingDish.x, player.y - flyingDish.y);
+      return d < 72 ? { item: 'flyingDish', x: flyingDish.x, y: flyingDish.y } : null;
+    }
     let nearest = null, distance = Infinity;
     for (const st of stations) { const d = Math.hypot(player.x - st.x, player.y - st.y); if (d < distance) { nearest = st; distance = d; } }
     return distance < 66 ? nearest : null;
   }
   function actionLabel() {
     const st = nearestStation();
+    if (flyingDish) return st && st.item === 'flyingDish' ? '抓奶茶' : '追奶茶';
     if (!st) return '互动';
     if (st.item === 'deliver') return allCollected() ? '交付' : '缺材料';
     if (carried.includes(st.item)) return '已拿';
@@ -269,9 +282,13 @@
     return `拿${items[st.item].short}`;
   }
   function drawPrompt() {
-    const st = nearestStation(); if (!st) return;
-    const label = st.item === 'deliver' ? (allCollected() ? '订单齐啦！送到投喂台' : '先去亮灯工作台收集材料') : carried.includes(st.item) ? `${items[st.item].name}已经拿好` : !recipe().required.includes(st.item) ? '这单暂时不需要' : `按右侧按钮 · ${items[st.item].name}`;
-    const w = Math.min(246, Math.max(166, label.length * 10 + 22));
+    if (roundState !== 'playing') return;
+    const st = nearestStation();
+    if (!st && !flyingDish) return;
+    let label;
+    if (flyingDish) label = st ? '追上啦！按右侧按钮抓住奶茶' : '餐品飞走啦！追近后按右侧按钮';
+    else label = st.item === 'deliver' ? (allCollected() ? '订单齐啦！送到投喂台' : '先去亮灯工作台收集材料') : carried.includes(st.item) ? `${items[st.item].name}已经拿好` : !recipe().required.includes(st.item) ? '这单暂时不需要' : `按右侧按钮 · ${items[st.item].name}`;
+    const w = Math.min(260, Math.max(174, label.length * 10 + 22));
     const x = Math.max(8, Math.min(logicalW - w - 8, player.x - w / 2));
     const y = Math.max(130, player.y - 145);
     rounded(x, y, w, 27, 11, 'rgba(23,59,56,.93)', 'rgba(255,255,255,.34)', 1);
@@ -290,52 +307,93 @@
     ellipse(knobX, knobY + 2, 26, 26, 'rgba(8,38,35,.23)');
     ellipse(knobX, knobY, 25, 25, 'rgba(225,245,218,.86)', 'rgba(255,255,240,.88)', 1.3);
     text('拖动移动', jx, cy + 74, 9, 'rgba(50,78,61,.72)', 750, 'center');
-    const label = actionLabel(), enabled = !['互动', '缺材料', '已拿', '不需要'].includes(label);
+    const label = actionLabel(), enabled = label === '交付' || label === '抓奶茶' || label.startsWith('拿');
     const fill = label === '交付' ? '#e9b95c' : enabled ? '#e9a960' : 'rgba(53,91,70,.28)';
     ellipse(ax, cy + 4, control.actionR, control.actionR, 'rgba(25,59,51,.14)');
     ellipse(ax, cy, control.actionR - 2, control.actionR - 2, fill, enabled ? '#fff1c9' : 'rgba(255,250,228,.72)', 2);
     ellipse(ax, cy, 39, 39, enabled ? 'rgba(255,246,212,.20)' : 'rgba(255,255,255,.10)');
     text(label, ax, cy - 3, label.length > 4 ? 13 : 17, enabled ? '#fffaf0' : '#fff9e8', 850, 'center');
-    text('互动', ax, cy + 21, 9, enabled ? 'rgba(255,250,235,.95)' : 'rgba(255,250,235,.78)', 650, 'center');
+    text(flyingDish ? '追上互动' : '互动', ax, cy + 21, 9, enabled ? 'rgba(255,250,235,.95)' : 'rgba(255,250,235,.78)', 650, 'center');
+  }
+  function drawFlyingDish(now) {
+    if (!flyingDish) return;
+    const x = flyingDish.x, y = flyingDish.y + Math.sin(now * .008) * 3;
+    const pulse = .5 + .5 * Math.sin(now * .009);
+    ellipse(x, y + 18, 34 + pulse * 3, 10 + pulse, 'rgba(100,157,115,.20)', 'rgba(94,153,111,.35)', 1.5);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(Math.sin(now * .004) * .09); ctx.scale(1.45, 1.45); drawProp('cup', 0, 0); ctx.restore();
+    ellipse(x - 26, y - 15, 3, 3, '#f2c86e'); ellipse(x + 25, y + 5, 2.5, 2.5, '#e9878d');
+    rounded(x - 38, y - 49, 76, 19, 9, 'rgba(255,247,220,.96)', '#d9b76e', 1);
+    text(flyingDish.settled ? '来抓我呀' : '追我呀！', x, y - 39.5, 9, '#8c633e', 850, 'center');
+  }
+  function drawPauseOverlay() {
+    ctx.fillStyle = 'rgba(20,48,43,.55)'; ctx.fillRect(0, 0, logicalW, logicalH);
+    const w = Math.min(328, logicalW - 36), h = 166, x = (logicalW - w) / 2, y = (logicalH - h) / 2;
+    rounded(x + 3, y + 6, w, h, 20, 'rgba(12,33,30,.24)');
+    rounded(x, y, w, h, 20, '#fff8e8', 'rgba(255,255,255,.72)', 1.5);
+    text('暂停一下', logicalW / 2, y + 38, 22, '#285d53', 900, 'center');
+    text('倒计时和飞走的餐品都停住了', logicalW / 2, y + 70, 11, '#73836e', 650, 'center');
+    resumeButton = { x: logicalW / 2 - 86, y: y + 96, w: 172, h: 46 };
+    rounded(resumeButton.x, resumeButton.y, resumeButton.w, resumeButton.h, 14, '#e7b85f', '#d3a54e', 1.2);
+    text('继续游戏', logicalW / 2, resumeButton.y + 23, 14, '#fffaf0', 850, 'center');
+  }
+  function drawUrgency(now) {
+    if (paused || roundState !== 'playing' || seconds > 10) return;
+    const alpha = .10 + (.5 + .5 * Math.sin(now * .014)) * .12;
+    ctx.save(); ctx.strokeStyle = `rgba(191,61,52,${alpha})`; ctx.lineWidth = 8; ctx.strokeRect(4, 4, logicalW - 8, logicalH - 8); ctx.restore();
   }
   function drawToast(now) {
     if (now > toastUntil || !toast) return;
-    const w = Math.min(365, logicalW - 32), x = (logicalW - w) / 2, y = 23;
+    const left = 432, right = logicalW - 132, w = Math.min(365, right - left), x = left + (right - left - w) / 2, y = 23;
     ctx.save(); ctx.globalAlpha = Math.min(1, (toastUntil - now) / 260);
     rounded(x, y, w, 34, 13, 'rgba(20,55,51,.93)', 'rgba(240,246,218,.45)', 1);
-    text(toast, logicalW / 2, y + 17, 12, '#fff4d8', 750, 'center'); ctx.restore();
+    text(toast, x + w / 2, y + 17, 12, '#fff4d8', 750, 'center'); ctx.restore();
   }
   function drawCelebration(now) {
     for (const e of effects) {
       const t = (now - e.at) / e.life; if (t < 0 || t > 1) continue;
       ctx.save(); ctx.globalAlpha = 1 - t;
       if (e.type === 'egg') {
-        rounded(e.x - 33, e.y - 31 - t * 48, 66, 62, 16, '#fff5da', '#e5c87f', 1.5);
-        drawPhoto(photo.egg, e.x - 30, e.y - 29 - t * 48, 60, 58);
+        rounded(e.x - 36, e.y - 34 - t * 56, 72, 68, 17, '#fff5da', '#e5c87f', 1.5);
+        drawPhoto(photo.egg, e.x - 33, e.y - 32 - t * 56, 66, 64);
       } else {
         ctx.translate(e.x, e.y + t * 85); ctx.rotate(e.rot + t * 5); ctx.fillStyle = e.color; ctx.fillRect(-4, -7, 8, 14);
       }
       ctx.restore();
     }
     effects = effects.filter(e => now - e.at < e.life);
-    if (roundState !== 'playing') {
-      const x = logicalW / 2, y = Math.max(130, logicalH * .26);
+    if (roundState === 'miss') {
+      const x = logicalW / 2, y = Math.max(132, logicalH * .26);
       rounded(x - 193, y - 30, 386, 68, 18, 'rgba(30,78,63,.95)', 'rgba(255,235,183,.62)', 1.4);
-      text(roundState === 'success' ? '好耶！奶蛙准时交付' : '客人等不及啦 · 下一单马上来', x, y - 5, 16, '#fff2c9', 850, 'center');
-      text(roundState === 'success' ? '奶蛋收入 +1' : '这单没有奶蛋，继续加油！', x, y + 20, 10, '#d9edc8', 650, 'center');
+      text('客人等不及啦 · 下一单马上来', x, y - 5, 16, '#fff2c9', 850, 'center');
+      text('这单没有奶蛋，继续加油！', x, y + 20, 10, '#d9edc8', 650, 'center');
+    } else if (roundState === 'success') {
+      const bw = 220, bx = Math.max(8, Math.min(logicalW - bw - 8, player.x - 184));
+      const by = Math.max(128, player.y - 207);
+      rounded(bx, by, bw, 33, 13, '#fff4d8', '#e6c77e', 1.2);
+      text('哈哈哈哈！奶蛋到手啦！', bx + bw / 2, by + 16.5, 12, '#8e5c39', 900, 'center');
+      for (const [i, side] of [-1, 1].entries()) {
+        const hx = Math.max(28, Math.min(logicalW - 28, player.x + side * 92));
+        const hy = player.y - 139 - Math.sin(now * .006 + i) * 8;
+        text('哈！', hx, hy, 16, i ? '#ce675d' : '#d78342', 900, 'center');
+      }
     }
   }
   function draw(now) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#eee2c5'; ctx.fillRect(0, 0, cssW, cssH);
     ctx.scale(scale, scale);
-    drawBackground(); drawRoom(); drawHud();
+    drawBackground(); drawRoom(); drawHud(now);
     const actors = stations.map(st => ({ y: st.y, fn: () => drawStation(st, now) }));
+    if (flyingDish) actors.push({ y: flyingDish.y, fn: () => drawFlyingDish(now) });
     actors.push({ y: player.y, fn: () => drawFrog(player, now) });
     actors.sort((a, b) => a.y - b.y).forEach(a => a.fn());
-    drawPrompt(); drawToast(now); drawCelebration(now); drawControls();
+    drawPrompt(); drawToast(now); drawCelebration(now); drawControls(); drawUrgency(now);
+    if (paused) drawPauseOverlay();
   }
-  function beginRound() { carried = []; seconds = 48; roundState = 'playing'; notify(`${recipe().guest}来下单啦，48 秒内做好这杯！`, 2200); }
+  function beginRound() {
+    carried = []; seconds = ROUND_SECONDS; urgencyWarned = false; flyingDish = null; roundState = 'playing';
+    notify(`${recipe().guest}来下单啦，${ROUND_SECONDS} 秒内做好这杯！`, 2200);
+  }
   function playChime(success = false) {
     try {
       audio = audio || new (window.AudioContext || window.webkitAudioContext)();
@@ -349,31 +407,61 @@
     } catch (_) {}
   }
   function vibrate(ms = 12) { if (navigator.vibrate) navigator.vibrate(ms); }
-  function interact() {
+  function startFlyingDish() {
+    const homeX = Math.max(logicalW * .22, Math.min(logicalW * .78, player.x + player.face * 92));
+    const homeY = Math.max(logicalH * .30, Math.min(logicalH * .66, player.y - 18));
+    flyingDish = { x: homeX, y: homeY, homeX, homeY, t: 0, settled: false };
+    tapTarget = null;
+    notify(`第${round + 1}位顾客的奶茶飞走啦！追上去按互动！`, 3200);
+    playChime(false); vibrate(24);
+  }
+  function finishOrder() {
     if (roundState !== 'playing') return;
+    flyingDish = null; player.vx = 0; player.vy = 0; tapTarget = null;
+    eggs++; best = Math.max(best, eggs); try { localStorage.setItem('wawa-kitchen-best', String(best)); } catch (_) {}
+    roundState = 'success'; pauseUntil = performance.now() + 3600;
+    toast = ''; toastUntil = 0; if (srStatus) srStatus.textContent = '哈哈哈哈！奶蛙大笑彩蛋！奶蛋 +1';
+    playChime(true); vibrate(45);
+    effects.push({ type: 'egg', x: Math.min(logicalW - 40, player.x + 160), y: player.y - 150, at: performance.now(), life: 2200 });
+    for (let i = 0; i < 32; i++) effects.push({ type: 'confetti', x: logicalW * (.24 + Math.random() * .52), y: logicalH * (.12 + Math.random() * .30), at: performance.now() + Math.random() * 180, life: 1700 + Math.random() * 900, rot: Math.random() * 6, color: ['#f0c36f', '#e98592', '#88c98f', '#82c5d0'][i % 4] });
+  }
+  function interact() {
+    if (paused || roundState !== 'playing') return;
     const st = nearestStation();
-    if (!st) { notify('再靠近亮起的工作台一点'); return; }
+    if (!st) { notify(flyingDish ? '奶茶正在飞，追近一点再按互动！' : '再靠近亮起的工作台一点'); return; }
+    if (st.item === 'flyingDish') { finishOrder(); return; }
     if (st.item === 'deliver') {
       if (!allCollected()) { notify(`材料还差 ${recipe().required.filter(id => !carried.includes(id)).map(id => items[id].name).join('、')}`); return; }
-      eggs++; best = Math.max(best, eggs); try { localStorage.setItem('wawa-kitchen-best', String(best)); } catch (_) {}
-      roundState = 'success'; pauseUntil = performance.now() + 2700; notify('交付成功！奶蛙拿到奶蛋啦', 2400); playChime(true); vibrate(24);
-      effects.push({ type: 'egg', x: player.x + 58, y: player.y - 73, at: performance.now(), life: 1600 });
-      for (let i = 0; i < 28; i++) effects.push({ type: 'confetti', x: logicalW * (.27 + Math.random() * .46), y: logicalH * (.18 + Math.random() * .24), at: performance.now() + Math.random() * 180, life: 1200 + Math.random() * 800, rot: Math.random() * 6, color: ['#f0c36f', '#e98592', '#88c98f', '#82c5d0'][i % 4] });
-      return;
+      finishOrder(); return;
     }
     if (carried.includes(st.item)) { notify(`${items[st.item].name}已经拿好啦`); return; }
     if (!recipe().required.includes(st.item)) { notify(`这单不需要${items[st.item].name}`); return; }
-    carried.push(st.item); notify(`拿到${items[st.item].name}！`); playChime(); vibrate();
+    carried.push(st.item); playChime(); vibrate();
+    if (allCollected() && round >= 2 && (round + 1) % 3 === 0) startFlyingDish();
+    else notify(`拿到${items[st.item].name}！`);
   }
-  function missOrder() { roundState = 'miss'; pauseUntil = performance.now() + 2200; notify('超时了，下一位客人马上来', 2100); vibrate(32); }
+  function missOrder() { flyingDish = null; roundState = 'miss'; pauseUntil = performance.now() + 2200; notify('超时了，下一位客人马上来', 2100); vibrate(32); }
   function resetGame() {
-    round = 0; eggs = 0; best = 0; try { localStorage.setItem('wawa-kitchen-best', '0'); } catch (_) {}
+    round = 0; eggs = 0; best = 0; paused = false; flyingDish = null; urgencyWarned = false; effects = []; toast = ''; toastUntil = 0;
+    try { localStorage.setItem('wawa-kitchen-best', '0'); } catch (_) {}
     player = { x: logicalW / 2, y: logicalH * .68, vx: 0, vy: 0, face: 1 }; beginRound();
   }
   function update(dt, now) {
-    if (!isLandscape) return;
+    if (!isLandscape || paused) return;
     if (roundState !== 'playing') { if (now >= pauseUntil) { round++; beginRound(); } return; }
-    seconds -= dt; if (seconds <= 0) { seconds = 0; missOrder(); return; }
+    seconds -= dt;
+    if (seconds <= 10 && !urgencyWarned) { urgencyWarned = true; notify('最后10秒！快冲！', 1900); playChime(false); vibrate(28); }
+    if (seconds <= 0) { seconds = 0; missOrder(); return; }
+    if (flyingDish && !flyingDish.settled) {
+      flyingDish.t += dt;
+      if (flyingDish.t >= 9) {
+        flyingDish.settled = true; flyingDish.x = logicalW * .5 + 48; flyingDish.y = logicalH * .72;
+        notify('奶茶飞累啦，停在投喂台附近了！', 1900);
+      } else {
+        flyingDish.x = Math.max(logicalW * .18, Math.min(logicalW * .82, flyingDish.homeX + Math.sin(flyingDish.t * 1.05) * Math.min(116, logicalW * .12)));
+        flyingDish.y = Math.max(logicalH * .25, Math.min(logicalH * .70, flyingDish.homeY + Math.sin(flyingDish.t * 1.55) * 44));
+      }
+    }
     let dx = joy.active ? joy.dx : 0, dy = joy.active ? joy.dy : 0;
     if (keys.has('ArrowLeft') || keys.has('a')) dx -= 1;
     if (keys.has('ArrowRight') || keys.has('d')) dx += 1;
@@ -391,11 +479,22 @@
     if (Math.abs(dx) > .1) player.face = dx > 0 ? 1 : -1;
   }
   function screenToWorld(e) { return { x: e.clientX / cssW * logicalW, y: e.clientY / cssH * logicalH }; }
+  function togglePause() {
+    if (roundState !== 'playing') return;
+    paused = !paused; keys.clear(); tapTarget = null;
+    joy.id = null; joy.active = false; joy.dx = 0; joy.dy = 0; joy.baseX = control.defaultJoyX; joy.baseY = logicalH - 94;
+    player.vx = 0; player.vy = 0;
+    if (!paused) lastTime = performance.now();
+    notify(paused ? '游戏已暂停' : '继续营业！', 1200);
+  }
   function pointerDown(e) {
     if (!isLandscape) return;
     e.preventDefault(); canvas.setPointerCapture(e.pointerId);
     const p = screenToWorld(e);
-    if (p.x >= resetButton.x - 8 && p.x <= resetButton.x + resetButton.w + 8 && p.y >= resetButton.y - 8 && p.y <= resetButton.y + resetButton.h + 8) { resetGame(); return; }
+    const hit = (r, pad = 8) => p.x >= r.x - pad && p.x <= r.x + r.w + pad && p.y >= r.y - pad && p.y <= r.y + r.h + pad;
+    if (hit(pauseButton)) { togglePause(); return; }
+    if (hit(resetButton)) { resetGame(); return; }
+    if (paused) { if (hit(resumeButton, 4)) togglePause(); return; }
     const c = controlCenters();
     if (Math.hypot(p.x - c.ax, p.y - c.cy) < 78) { interact(); return; }
     const movementZone = p.x < logicalW * .46 && p.y > logicalH * .40;
@@ -421,6 +520,8 @@
   canvas.addEventListener('pointerup', endPointer); canvas.addEventListener('pointercancel', endPointer); canvas.addEventListener('lostpointercapture', endPointer);
   window.addEventListener('keydown', e => {
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (k === 'p' && !e.repeat) { togglePause(); return; }
+    if (paused) return;
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(k)) e.preventDefault();
     if (k === ' ' || k === 'e' || k === 'Enter') { if (!e.repeat) interact(); }
     keys.add(k);
