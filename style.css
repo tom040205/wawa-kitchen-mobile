@@ -1,10 +1,17 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #173d3b; overscroll-behavior: none; }
 body { font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", "Microsoft YaHei", sans-serif; touch-action: none; -webkit-user-select: none; user-select: none; }
-#game-wrap { position: fixed; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 42%, #2c6458 0%, #173d3b 72%); }
+#game-wrap { position: fixed; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 45%, #2d6357 0%, #173d3b 74%); }
 #game { display: block; width: 100%; height: 100%; touch-action: none; }
-#rotate-hint { display: none; position: fixed; top: max(env(safe-area-inset-top), 12px); left: 50%; transform: translateX(-50%); color: #e7f5dc; opacity: .58; font-size: 11px; letter-spacing: .08em; pointer-events: none; }
+#landscape-overlay { display: none; position: fixed; z-index: 5; inset: 0; padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom)); align-items: center; justify-content: center; flex-direction: column; text-align: center; color: #fff2d6; background: radial-gradient(ellipse at 50% 40%, #2d6357 0%, #173d3b 76%); }
+#landscape-overlay h1 { margin: 18px 0 9px; font-size: clamp(23px, 6vw, 34px); letter-spacing: .04em; }
+#landscape-overlay p { margin: 0; color: #d7e8cd; font-size: 14px; line-height: 1.8; }
+#landscape-overlay small { margin-top: 16px; color: rgba(233,243,221,.66); font-size: 11px; }
+#landscape-button { margin-top: 22px; border: 1px solid #ffe9b3; border-radius: 999px; padding: 12px 25px; color: #3d5947; background: #f1d28e; font: 800 15px system-ui, sans-serif; box-shadow: 0 6px 0 rgba(10,35,31,.22); }
+#landscape-button:active { transform: translateY(2px); box-shadow: 0 4px 0 rgba(10,35,31,.22); }
+.rotate-device { position: relative; width: 64px; height: 64px; display: grid; place-items: center; color: #f2d38f; }
+.rotate-device span { width: 31px; height: 54px; border: 3px solid #f2d38f; border-radius: 8px; transform: rotate(90deg); box-shadow: inset 0 0 0 2px rgba(242,211,143,.12); }
+.rotate-device i { position: absolute; right: -1px; top: -1px; font-style: normal; font-size: 26px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-@media (orientation: landscape) and (max-height: 540px) {
-  #rotate-hint { display: block; }
-}
+@media (orientation: portrait) { #landscape-overlay { display: flex; } }
+@media (orientation: landscape) { #landscape-overlay { display: none; } }
