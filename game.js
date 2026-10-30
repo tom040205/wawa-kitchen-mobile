@@ -177,7 +177,7 @@
     const isDelivery = st.item === 'deliver';
     const active = !isDelivery && recipe().required.includes(st.item) && !carried.includes(st.item);
     const done = !isDelivery && carried.includes(st.item);
-    const ready = isDelivery && allCollected() && !flyingDish;
+    const ready = isDelivery && allCollected() && !flyingDish && roundState === 'playing';
     const pulse = .5 + .5 * Math.sin(now * .004);
     if (active || ready) {
       ctx.save(); ctx.globalAlpha = .20 + pulse * .16;
@@ -273,6 +273,8 @@
     return distance < 66 ? nearest : null;
   }
   function actionLabel() {
+    if (roundState === 'success') return '大笑中';
+    if (roundState === 'miss') return '下一单';
     const st = nearestStation();
     if (flyingDish) return st && st.item === 'flyingDish' ? '抓奶茶' : '追奶茶';
     if (!st) return '互动';
