@@ -1,0 +1,10 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #173d3b; overscroll-behavior: none; }
+body { font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", "Microsoft YaHei", sans-serif; touch-action: none; -webkit-user-select: none; user-select: none; }
+#game-wrap { position: fixed; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 42%, #2c6458 0%, #173d3b 72%); }
+#game { display: block; width: 100%; height: 100%; touch-action: none; }
+#rotate-hint { display: none; position: fixed; top: max(env(safe-area-inset-top), 12px); left: 50%; transform: translateX(-50%); color: #e7f5dc; opacity: .58; font-size: 11px; letter-spacing: .08em; pointer-events: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@media (orientation: landscape) and (max-height: 540px) {
+  #rotate-hint { display: block; }
+}
